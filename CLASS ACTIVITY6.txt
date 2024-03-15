@@ -1,0 +1,218 @@
+
+SELECT SB1.*,
+[DIFFERENCE] AS DECREASED_PRODUCT_COMPARED_PERVIOUS_MONTH
+
+FROM(
+SELECT SB.*,
+(SB.[SUM TOTAL]-Lagged_transaction) AS [DIFFERENCE]
+FROM(
+SELECT SUB2.StockItemName, SUB2.tmonth, SUB2.tyear,SUB2.[SUM TOTAL]
+,LAG(SUB2.[SUM TOTAL]) OVER (ORDER BY sub2.Stockitemname) AS Lagged_transaction
+FROM
+(
+SELECT SUB.StockItemName, 
+SUB.tmonth,SUB.tyear, 
+SUM(SUB.ExtendedPrice) [SUM TOTAL]
+FROM(
+select SA.StockItemName,
+ST.TransactionOccurredWhen,year(ST.TransactionOccurredWhen)as tyear , month(ST.TransactionOccurredWhen) tmonth,
+SL.ExtendedPrice
+from [Sales].[InvoiceLines] SL
+INNER JOIN [Warehouse].[StockItems_Archive] SA  ON  SA.StockItemID = SL.StockItemID
+ INNER JOIN [Warehouse].[StockItemTransactions] ST ON ST.StockItemID = SA.StockItemID
+ ) SUB
+ GROUP BY SUB.StockItemName, SUB.tmonth, SUB.tyear 
+)SUB2
+) SB 
+) SB1
+WHERE [DIFFERENCE] <0
+order by SB1.StockItemName, SB1.tyear, SB1.tmonth
+
+
+-- BEFORE FILTERING APPLAYED
+SELECT SB.*,
+(SB.[SUM TOTAL]-Lagged_transaction) AS [DIFFERENCE]
+FROM(
+SELECT SUB2.StockItemName, SUB2.tmonth, SUB2.tyear,SUB2.[SUM TOTAL]
+,LAG(SUB2.[SUM TOTAL]) OVER (ORDER BY sub2.Stockitemname) AS Lagged_transaction
+FROM
+(
+SELECT SUB.StockItemName, 
+SUB.tmonth,SUB.tyear, 
+SUM(SUB.ExtendedPrice) [SUM TOTAL]
+FROM(
+select SA.StockItemName,
+ST.TransactionOccurredWhen,year(ST.TransactionOccurredWhen)as tyear , month(ST.TransactionOccurredWhen) tmonth,
+SL.ExtendedPrice
+--SUM(SL.ExtendedPrice) [SUM TOTAL]
+from [Sales].[InvoiceLines] SL
+INNER JOIN [Warehouse].[StockItems_Archive] SA  ON  SA.StockItemID = SL.StockItemID
+ INNER JOIN [Warehouse].[StockItemTransactions] ST ON ST.StockItemID = SA.StockItemID
+ ) SUB
+ GROUP BY SUB.StockItemName, SUB.tmonth, SUB.tyear --SUB.TransactionOccurredWhen
+--order by SUB.StockItemName, SUB.tyear, SUB.tmonth) 
+)SUB2
+--order by SUB2.StockItemName, SUB2.tyear, SUB2.tmonth
+) SB 
+order by SB.StockItemName, SB.tyear, SB.tmonth
+
+
+--ACTIVITY 2
+SELECT SUB1.*,
+(SUB1.Total_Order_perday-SUB1.Lagged_Daily_order)*100/SUB1.Total_Order_perday AS [%change_in_dialy_order]
+FROM(
+SELECT SUB.*,
+LAG(SUB.Total_Order_perday) OVER (ORDER BY SUB.OrderDate) AS Lagged_Daily_order,
+SUM(SUB. Total_Order_perday) OVER(order BY SUB.OrderDate) AS Running_total_order
+FROM(
+SELECT SO.OrderDate--  SO.OrderID, 
+,COUNT(OrderDate) AS Total_Order_perday
+FROM [Sales].[Orders] SO
+GROUP BY OrderDate
+)SUB
+)SUB1
+ORDER BY SUB1.OrderDate
+
+
+
+--HOMEWORK:  CTEs (COMMON TABLE EXPRESSIONS)
+--1.A Create a CTE to calculate performance metrics for employees, including the total number of orders they have processed
+         --and the average order amount. Display the employee ID, full name, total orders, and average order amount.
+		 
+   WITH Count_of_orders AS (
+SELECT   AP.FullName, AP.PersonID, SO.OrderDate
+FROM
+[Application].[People] AP
+              INNER JOIN [Application].[DeliveryMethods] DM
+			  ON AP.LastEditedBy = DM.LastEditedBy
+			  INNER JOIN [Sales].[Customers] SC
+			  ON DM.DeliveryMethodID = SC.DeliveryMethodID
+			  INNER JOIN [Sales].[Orders] SO
+			  ON SC.CustomerID = SO.CustomerID
+WHERE AP.IsEmployee = 1),
+Count_ as(
+        SELECT PersonID, FullName, COUNT(OrderDate) AS Total_Orders_Of_Each_Employee
+        FROM count_of_orders
+		GROUP BY FullName, PersonID),
+	average_ AS( 
+		SELECT * ,SUM(Total_Orders_Of_Each_Employee) OVER() AS SUM_of_total_order,
+                AVG(Total_Orders_Of_Each_Employee) OVER () AS AVERAGE
+		from Count_)
+
+		SELECT *
+		FROM average_
+			order by PersonID
+
+			WITH order_CTE AS (
+SELECT   AP.FullName, AP.PersonID, SO.OrderDate
+--COUNT(SO.OrderDate) AS Total_Order_perday
+FROM
+[Application].[People] AP
+              INNER JOIN [Application].[DeliveryMethods] DM
+			  ON AP.LastEditedBy = DM.LastEditedBy
+			  INNER JOIN [Sales].[Customers] SC
+			  ON DM.DeliveryMethodID = SC.DeliveryMethodID
+			  INNER JOIN [Sales].[Orders] SO
+			  ON SC.CustomerID = SO.CustomerID
+WHERE AP.IsEmployee = 1
+),
+order_1 AS (
+		 select FullName, PersonID, OrderDate, COUNT(OrderDate) AS daily_order
+		 from order_CTE
+		 group by FullName, OrderDate,PersonID),
+
+order_2 AS (select *, SUM(daily_order) over(partition by orderdate) AS Daily_total_order
+		 FROM order_1),
+
+order_3 AS (select *, AVG(daily_order) over(partition by orderdate) as average
+		 from order_2)
+		 SELECT *
+		 FROM order_3
+		 order by orderdate
+
+-- 1. Create a CTE to analyze monthly spending trends for each customer. 
+           -- Display the customer name, month, total spending, and the percentage 
+		   -- change in spending compared to the previous month.
+WITH m_y_CTE AS (
+SELECT sc.CustomerName, month(so.OrderDate) as tmonth ,year(so.OrderDate) as tyear , il.ExtendedPrice
+FROM [Sales].[Customers] sc
+       inner join [Sales].[Orders] so
+	   on sc.CustomerID = so.CustomerID
+	   inner join [Sales].[Invoices] inv
+	   on so.OrderID = inv.OrderID
+	   inner join [Sales].[InvoiceLines] il
+	   on inv.InvoiceID = il.InvoiceID  ),
+	   SUM_CTE AS
+	   ( SELECT  CustomerName, tmonth,  tyear, sum(ExtendedPrice)  total_monthly_spent
+	   FROM m_y_CTE
+	      group by CustomerName,tmonth,tyear 
+		  ),
+		  Lagged_total AS (
+		  select *, LAG(total_monthly_spent) OVER(ORDER BY CustomerName,tyear,tmonth) AS lagged_monthly_total
+		  from SUM_CTE  ),
+		monthly_change AS (
+		  select *,  (total_monthly_spent-lagged_monthly_total)*100.1/lagged_monthly_total as monthly_change
+		  from Lagged_total)
+
+		  select *
+		  from monthly_change
+		   
+	 -- 3. Generate a CTE to represent the employee hierarchy with an additional column indicating
+           -- the depth level of each employee in the reporting structure.
+		   --Display the employee ID, full name, supervisor ID, and depth level
+		   with monthly_sold AS (
+select si.StockItemName, il.ExtendedPrice, so.OrderDate, month(so.OrderDate) as tmonth ,year(so.OrderDate) as tyear
+from [Warehouse].[StockItems] si
+	INNER JOIN [Sales].[InvoiceLines] il
+	on si.StockItemID = il.StockItemID
+	inner join [Sales].[Invoices] iv
+	on iv.InvoiceID = il.InvoiceID
+	inner join [Sales].[Orders] so
+	on so.CustomerID = iv.CustomerID),
+	monthly_total AS (
+	SELECT StockItemName, tmonth, tyear, SUM(ExtendedPrice) Total_price
+	FROM monthly_sold    
+group by StockItemName, tmonth, tyear),
+lagged_ AS (
+	SELECT *,LAG(Total_price) over ( order by StockItemName)  AS lagged_total
+	FROM monthly_total),
+_percentage_increase AS (
+	SELECT *, (Total_price-lagged_total)*100.0/lagged_total AS Monthly_growth_percentage
+	FROM lagged_)
+
+	SELECT *
+	FROM _percentage_increase
+	 order by StockItemName, tyear, tmonth
+
+	 
+-- 2. Utilize a CTE to calculate the cumulative sales growth for each product over time.
+           -- Display the product name, sales amount, and the cumulative sales growth percentage.
+
+		   		   with monthly_sold AS (
+select si.StockItemName, il.ExtendedPrice, so.OrderDate, month(so.OrderDate) as tmonth ,year(so.OrderDate) as tyear
+from [Warehouse].[StockItems] si
+	INNER JOIN [Sales].[InvoiceLines] il
+	on si.StockItemID = il.StockItemID
+	inner join [Sales].[Invoices] iv
+	on iv.InvoiceID = il.InvoiceID
+	inner join [Sales].[Orders] so
+	on so.CustomerID = iv.CustomerID),
+	monthly_total AS (
+	SELECT StockItemName, tmonth, tyear, SUM(ExtendedPrice) Total_price
+	FROM monthly_sold    
+group by StockItemName, tmonth, tyear),
+lagged_ AS (
+	SELECT *,LAG(Total_price) over ( order by StockItemName)  AS lagged_total
+	FROM monthly_total),
+_percentage_increase AS (
+	SELECT *, (Total_price-lagged_total)*100.0/lagged_total AS Monthly_growth_percentage
+	FROM lagged_)
+
+	SELECT *
+	FROM _percentage_increase
+	 order by StockItemName, tyear, tmonth
+
+
+
+
+
